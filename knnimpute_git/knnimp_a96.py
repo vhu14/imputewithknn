@@ -1,15 +1,18 @@
 __author__ = 'victor'
 
 import numpy as np
-import scipy as sp
 import random 
 import sys
 import math
-import warnings
 
 
 def imputeknn(dat, k=10,rowmax=0.5,colmax=0.8,maxp=1500,seed=362436069):
-
+	"""Main function to compute the imputed n*p data matrix, input the original
+	data matrix: dat, number of nearest neighbors: k, max missing ratios for rows
+	and columns, the value of dimension p that determines the methodology for
+	imputation and a random seed.  The return value is a fully imputed matrix.
+	It is a wrapper for the key function knnimp.
+	"""
     np.random.seed(seed)
     x = dat
     p = x.shape[0]
@@ -21,6 +24,11 @@ def imputeknn(dat, k=10,rowmax=0.5,colmax=0.8,maxp=1500,seed=362436069):
     return (ximp, seed)
 	
 def knnimp(x,k=10,maxmiss=0.5,maxp=1500):
+	"""The key function for the imputation, it first removes rows with too many
+	 missing value; for the remaining matrix, depending on the value of dimension p,
+	apply either knnimp_internal (simple knn) or knnimp_split (two means knn).  For
+	the removed rows, a simple two-mean cluster imputation is used.
+	"""
 	pn=x.shape
 	p=pn[0]
 	n=pn[1]
@@ -42,7 +50,7 @@ def knnimp(x,k=10,maxmiss=0.5,maxp=1500):
 	if(p<=maxp):
 		ximp=knnimp_internal(x,k,imiss,irmiss,p,n,maxp)
 	else:
-		ximp=knnimp.split(x,k,imiss,irmiss,p,n,maxp)
+		ximp=knnimp_split(x,k,imiss,irmiss,p,n,maxp)
 	imissnew=np.isnan(ximp)
 	newmiss=imissnew.any()
 	if((simax>0) or newmiss):
@@ -58,7 +66,7 @@ def knnimp(x,k=10,maxmiss=0.5,maxp=1500):
 	
 
 def knnimp_internal(x,k,imiss,irmiss,p,n,maxp): 
-	
+	"Imputation function when p< maxp, a wrapper for knncompute"
 	if(p<=maxp): 
 		ximp,imiss2 = knncompute(x,p,n,imiss,irmiss,k)
 		ximp[imiss2==2]=np.nan
@@ -66,7 +74,12 @@ def knnimp_internal(x,k,imiss,irmiss,p,n,maxp):
 	return (ximp)	
 
 def knncompute(x, p,n,imiss,irmiss,kn): 
-	m = min(kn+ 1, n/2.0) 
+	"""Function that imputes the data.  For each dimension, it computes and orders
+	the distance for all points from the given points, and using the average of the
+	values of that dimension from the k nearest points as the imputed value. It
+	returns two values, the imputed matrix, and a binary matrix track the updated
+	missing info"""
+	m = min(kn+ 1, n/2.0)
 	imiss2 = np.zeros(shape=(p,n))
 	imiss2[np.where(imiss)]=1
 	for i in range(0,p): 
@@ -84,8 +97,11 @@ def knncompute(x, p,n,imiss,irmiss,kn):
 						imiss2[i,k]=2 
 	return (x, imiss2)
 	
-## compute the mean nn for missing coords
+
 def misave(x, n, imiss0, imiss, pos, kn): 
+	"""For missing coordinates from a given row, impute from the average value
+	with k nearest neighbors, it returns the imputed row and a binary vector
+	tracking updated missing info."""
 	x0 = np.zeros(shape=(1,n))
 	iworkn2 = np.zeros(shape=(1,n))
 	iworkn2[0,np.where(imiss0)]=1
@@ -96,7 +112,7 @@ def misave(x, n, imiss0, imiss, pos, kn):
 		if(not imiss0[k]): continue
 		ktot = 0 
 		for j in range(0,kn): 
-			jj = pos[j]
+			jj = pos[j]-1
 			if(imiss[jj,k]): continue
 			x0[0,k] = x0[0,k] + x[jj, k]
 			ktot = ktot + 1
@@ -105,8 +121,10 @@ def misave(x, n, imiss0, imiss, pos, kn):
 		else: iworkn2[0,k]=2 	
 	return (x0, iworkn2)
 
-##  find the distance and number of neighbors	
+
 def misdis(x0,x,p,n,imiss0,imiss):
+	"""Computes the distance for matrix x to vector x0 on each coordinate, returns
+	the p dimensional distance vector"""
 	dismax = 1.0e10
 	workp = np.zeros(p)
 	iworkp = np.zeros(p)
@@ -122,8 +140,8 @@ def misdis(x0,x,p,n,imiss0,imiss):
 		
 	return (workp)
 	
-##  find the small to large ordering of distance
-def porder(m,workp,p): 
+def porder(m,workp,p):
+	"Order the indices using the distance information, m is the number of neighbors to keep"
 	pos = np.zeros(m)
 	for j in range(0,m): 
 		pos[j] = p+1
@@ -159,7 +177,7 @@ def porder(m,workp,p):
 	return (pos) 
 	
 def meanmiss(x, index, imiss):
-
+	"Simply apply the average to impute the missing values"
     pn = x.shape
     p = pn[0]
     n = pn[1]
@@ -173,7 +191,11 @@ def meanmiss(x, index, imiss):
 ########################################################################
 
 def knnimp_split(x,k,imiss,irmiss,p,n,maxp): 
-	size,clus = twomeansmiss(x,np.isnan(x))
+	"""The main function when p> maxp, it divides x into two parts, and for p small,
+	use an iterative two-means clustering and neighboring estimation, otherwise, apply
+	the original knnimp_internal methodology
+	"""
+	clus, ratio, iters, size = twomeansmiss(x,imiss)
 	for i in range(0,2):
 		p = size[i]
 		index = (clus==i)
@@ -181,23 +203,26 @@ def knnimp_split(x,k,imiss,irmiss,p,n,maxp):
 			imiss_idx = np.isnan(x[index,:])
 			x[index,:] = meanimp(x[index,:], imiss_idx, meanmiss(x[index,:],index, imiss_idx))
 		else: 
-			x[index,:] = knnimp_internal(x[index,:],k,imiss[index,:],irmiss[0,index],p,n,maxp)
+			x[index,:] = knnimp_internal(x[index,:],k,imiss[index,:],irmiss[index],p,n,maxp)
 	return (x)
 
 
 def twomeansmiss(x,imiss,imbalance=.2,maxit=5,eps=0.001): 
-	
+	"Iteratively update the clustering, return the two clusters of the data"
 	p = x.shape[0]
 	n = x.shape[1]
 	if(imiss.any()): x[imiss]=0
 	starters = random.sample(range(0,p),2)
 	ratio, iters, nsize, clus1 = twomis(x,p,n,imiss,starters, imbalance*5, maxit,eps)
-	clus2 = np.zeros(p)
-	clus2[np.unique(clus1[range(0,math.floor(nsize[1])),1]).astype(int)] = 1 
+	clus2 = np.zeros(p+1)
+	clus2[np.unique(clus1[range(0,math.floor(nsize[1])),1]).astype(int)] = 1
+	clus2 = clus2[range(1,len(clus2))]
 	return (clus2, ratio, iters, nsize)
-	
-def twomis(x,p,n,imiss,starters, balancefactor, maxit=5,eps=0.001): 
 
+
+def twomis(x,p,n,imiss,starters, balancefactor, maxit=5,eps=0.001):
+	"""The main iteration function to update and make the data into two clusters by the
+	metric of overall distance"""
 	x0 = np.zeros(shape=(n,2))
 	imiss0 = np.zeros(shape=(n,2))
 	clust = np.zeros(shape=(p,2))
@@ -219,13 +244,15 @@ def twomis(x,p,n,imiss,starters, balancefactor, maxit=5,eps=0.001):
 			## update distance each dimension to the centroid of two clusters
 			distn[:,i] = misdis(np.squeeze(np.asarray(x0[:,i])), x, p,n,np.squeeze(np.asarray(imiss0[:,i])),imiss)
 			nsize[i]=0 
-		dnew = 0.0 
+		dnew = 0.0
+		clust = np.zeros(shape=(p,2))
+
 		## use distance for labeling update 
 		for j in range(0,p): 
 			if(distn[j,0]<balancefactor*distn[j,1]): imax =0 
 			else: imax = 1 
 			nsize[imax]=nsize[imax]+1 
-			clust[nsize[imax]-1, imax]=j  
+			clust[nsize[imax]-1, imax]=j+1
 			dnew = dnew + distn[j, imax]
 			
 		if(dnew!=0.0): 
@@ -243,29 +270,9 @@ def twomis(x,p,n,imiss,starters, balancefactor, maxit=5,eps=0.001):
 	
 # def meanimp(x,imiss=np.isnan(x),xbar=meanmiss(x,imiss=imiss)):
 def meanimp(x, imiss,xbar):
+    "Use xbar to impute the missing values"
     nr = x.shape[0]
     if(nr>1):
         x[imiss] = np.outer(np.ones(nr),xbar)[imiss]
     return (x)
 
-####  testing  #####
-
-seed=14578396
-np.random.seed(seed)
-x1 = np.zeros(shape=(100, 40))
-p1 = x1.shape[0]
-p2 = x1.shape[1]
-for i in range(0,p2): 
-	x1[:,i] = np.asarray([math.floor(a) for a in np.random.sample(p1)*100])
-	x1[np.where(x1[:,i]>85),i] = np.nan
-	
-x1_imputed, seed = imputeknn(x1)
-
-x2 = np.zeros(shape=(2183,60))
-p1 = x2.shape[0]
-p2 = x2.shape[1]
-for i in range(0,p2): 
-	x2[:,i] = np.asarray([math.floor(a) for a in np.random.sample(p1)*100])
-	x2[np.where(x2[:,i]>85),i] = np.nan
-	
-x2_imputed, seed = imputeknn(x2)
