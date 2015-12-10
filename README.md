@@ -1,6 +1,6 @@
 # imputewithknn
 
-Implement a missing data imputation using k-nearst neighbors, capable of both small p and large p.
+Implement a missing data imputation using k-nearst neighbors, capable of both small p (<1500) and large p (>=1500).
 
 # reference
 
