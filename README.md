@@ -1,7 +1,7 @@
 # imputewithknn
 
-Implement missing data imputation using k-nearst neighbors, capable of both small p and large p.
+Implement a missing data imputation using k-nearst neighbors, capable of both small p and large p.
 
 # reference
 
-To be added
+R package from BioConductor: http://www.inside-r.org/packages/cran/imputation/docs/kNNImpute
